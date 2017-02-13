@@ -1,8 +1,10 @@
 package scavenger
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"runtime"
 
 	"github.com/PuerkitoBio/goquery"
@@ -11,18 +13,21 @@ import (
 type (
 	Parser func(doc *goquery.Document)
 
-	Scheduler struct {
+	Schedule struct {
 		URL    *url.URL
 		Parser Parser
 	}
 
 	Scavenger struct {
-		Schedulers []*Scheduler
-		Crawler    *http.Client
+		Crawler *http.Client
 	}
 )
 
 var (
+	Schedulers = make(chan Schedule)
+
+	Quit = make(chan bool)
+
 	defaulReqConcurrency = runtime.NumCPU()
 )
 
@@ -46,7 +51,7 @@ func New(rawURL string, p Parser) (*Scavenger, error) {
 		Crawler: client,
 	}
 
-	s.Schedulers = append(s.Schedulers, &Scheduler{
+	AppendSchedule(Schedule{
 		URL:    url,
 		Parser: p,
 	})
@@ -54,12 +59,31 @@ func New(rawURL string, p Parser) (*Scavenger, error) {
 	return s, nil
 }
 
+func AppendSchedule(sch Schedule) {
+	fmt.Println("ppend new schedule")
+	go func() {
+		Schedulers <- sch
+	}()
+}
+
+func Terminate() {
+	go func() {
+		Quit <- true
+	}()
+}
+
 func (s *Scavenger) Run() {
-	for _, s := range s.Schedulers {
-		doc, err := goquery.NewDocument(s.URL.String())
-		if err != nil {
-			panic(err)
+	for {
+		fmt.Println("running...")
+		select {
+		case sch := <-Schedulers:
+			doc, _ := goquery.NewDocument(sch.URL.String())
+			sch.Parser(doc)
+
+		case <-Quit:
+			fmt.Println("exit!!!!!!!!!")
+			os.Exit(0)
+			break
 		}
-		s.Parser(doc)
 	}
 }
