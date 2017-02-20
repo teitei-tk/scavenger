@@ -1,89 +1,70 @@
 package scavenger
 
-import (
-	"fmt"
-	"net/http"
-	"net/url"
-	"os"
-	"runtime"
+import "github.com/PuerkitoBio/goquery"
 
-	"github.com/PuerkitoBio/goquery"
+var (
+	JobQueue chan Job
+	Quit     chan bool
 )
 
 type (
 	Parser func(doc *goquery.Document)
 
-	Schedule struct {
-		URL    *url.URL
+	Job struct {
+		URL    string
 		Parser Parser
 	}
 
 	Scavenger struct {
-		Crawler *http.Client
+		WorkerPool chan chan Job
+		maxWorkers int
 	}
 )
 
-var (
-	Schedulers = make(chan Schedule)
-
+func init() {
+	JobQueue = make(chan Job)
 	Quit = make(chan bool)
-
-	defaulReqConcurrency = runtime.NumCPU()
-)
-
-func New(rawURL string, p Parser) (*Scavenger, error) {
-	url, err := url.Parse(rawURL)
-	if err != nil {
-		return nil, err
-	}
-
-	reqConcurrency := defaulReqConcurrency
-	runtime.GOMAXPROCS(reqConcurrency)
-
-	if p == nil {
-		panic("parser is not implemented")
-	}
-
-	// @TODO: Tuning
-	client := http.DefaultClient
-
-	s := &Scavenger{
-		Crawler: client,
-	}
-
-	AppendSchedule(Schedule{
-		URL:    url,
-		Parser: p,
-	})
-
-	return s, nil
 }
 
-func AppendSchedule(sch Schedule) {
-	fmt.Println("ppend new schedule")
-	go func() {
-		Schedulers <- sch
-	}()
+func New(maxWorkers int) *Scavenger {
+	pool := make(chan chan Job, maxWorkers)
+	return &Scavenger{
+		WorkerPool: pool,
+		maxWorkers: maxWorkers,
+	}
 }
 
-func Terminate() {
-	go func() {
-		Quit <- true
-	}()
+func (s *Scavenger) Run(startURLs []string, p Parser) {
+	for _, url := range startURLs {
+		s.Enqueue(Job{URL: url, Parser: p})
+	}
+
+	for i := 0; i < s.maxWorkers; i++ {
+		NewWorker(s.WorkerPool).Start()
+	}
+
+	s.dispatch()
 }
 
-func (s *Scavenger) Run() {
+func (s *Scavenger) Enqueue(job Job) {
+	go func() { JobQueue <- job }()
+}
+
+func (s *Scavenger) Terminate() {
+	go func() { Quit <- true }()
+}
+
+func (s *Scavenger) dispatch() {
 	for {
-		fmt.Println("running...")
 		select {
-		case sch := <-Schedulers:
-			doc, _ := goquery.NewDocument(sch.URL.String())
-			sch.Parser(doc)
+		case job := <-JobQueue:
+			go func(job Job) {
+				jobChannel := <-s.WorkerPool
+				jobChannel <- job
+			}(job)
 
 		case <-Quit:
-			fmt.Println("exit!!!!!!!!!")
-			os.Exit(0)
-			break
+			return
 		}
 	}
 }

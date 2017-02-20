@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"net/url"
 
 	"github.com/teitei-tk/scavenger"
 
@@ -10,29 +9,25 @@ import (
 )
 
 func main() {
-	s, err := scavenger.New("http://teitei-tk.hatenablog.com/", func(d *goquery.Document) {
-		d.Find("a.entry-title-link").Each(func(_ int, sec *goquery.Selection) {
-			url, err := url.Parse(sec.AttrOr("href", ""))
-			if err != nil {
-				return
-			}
-
-			scavenger.AppendSchedule(scavenger.Schedule{
-				URL: url,
-				Parser: func(d2 *goquery.Document) {
-					fmt.Println(d2.Find(".entry-title-link").Text())
-
-					scavenger.Terminate()
-				},
-			})
+	s := scavenger.New(3)
+	u := "http://jp.techcrunch.com"
+	printTitle := func(d *goquery.Document) {
+		d.Find("h2.post-title").ChildrenFiltered("a").Each(func(_ int, sec *goquery.Selection) {
+			fmt.Println(sec.Text())
 		})
-	})
-
-	if err != nil {
-		panic(err)
 	}
 
-	fmt.Println("run")
+	url := func(d *goquery.Document) string {
+		url := u + d.Find("li.next").ChildrenFiltered("a").AttrOr("href", "")
+		return url
+	}
 
-	s.Run()
+	p := func(d *goquery.Document) {
+		r := url(d)
+		if r != "" {
+			s.Enqueue(scavenger.Job{URL: r, Parser: printTitle})
+		}
+	}
+
+	s.Run([]string{"http://jp.techcrunch.com/"}, p)
 }
