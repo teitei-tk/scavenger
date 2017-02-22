@@ -1,3 +1,3 @@
 # Scavenger
 
-fast extracting web crawling and scraping Edit
+fast extracting web crawling and scraping

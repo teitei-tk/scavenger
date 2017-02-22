@@ -43,7 +43,8 @@ func (w Worker) fetch(job Job) {
 		return
 	}
 
-	job.Parser(res)
+	r := job.Parser(res)
+	fmt.Println(r)
 }
 
 func (w Worker) newRequest(job Job) (*goquery.Document, error) {
